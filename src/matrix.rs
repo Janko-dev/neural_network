@@ -1,13 +1,19 @@
-use std::{rc::Rc, collections::HashMap, hash::Hash};
+use std::rc::Rc;
 use rand::prelude::*;
-
-#[derive(Debug, Clone)]
-pub enum Operator {
-    Add(Matrix, Matrix),
-    Mul(Matrix, Matrix), 
-    MatMul(Matrix, Matrix),
-    Transpose(Matrix)
-}
+use crate::{
+    Operator, 
+    BinaryOpType::{
+        Add,
+        Sub,
+        Mul,
+        Div,
+        MatMul,
+    },
+    UnaryOpType::{
+        Sigmoid,
+        Transpose
+    }
+};
 
 // #[derive(Debug, Clone)]
 // enum OpType {
@@ -15,20 +21,12 @@ pub enum Operator {
 //     Unary(Tensor, Operator)
 // }
 
-// #[derive(Debug)]
-// pub struct Storage(Vec<f32>);
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-// impl Storage {
-//     fn new_between(from: f32, to: f32, size: usize) -> Self {
-//         let mut rng = rand::thread_rng();
-//         let data = (0..size)
-//             .map(|x| rng.gen_range(from..to))
-//             .collect::<Vec<f32>>();
-//         Storage(data)
-//     }
-
-//     // pub fn matmul 
-// }
+fn get_id() -> usize {
+    static COUNTER:AtomicUsize = AtomicUsize::new(1);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Debug)]
 struct Matrix_ {
@@ -72,6 +70,33 @@ impl Matrix_ {
         }
     }
 }
+
+macro_rules! binary_operator {
+    ($name: ident, $op: tt, $op_type: expr) => {
+        
+        pub fn $name(&self, other: &Self) -> Result<Self, String> {
+
+            if self.shape() != other.shape() {
+                return Err("Shape mismatch error: columns or rows of self do not match columns or rows of other".to_string());
+            }
+    
+            let (rows, cols) = self.shape();
+    
+            let mut data = vec![0.; rows * cols];
+            for i in 0..rows {
+                for j in 0..cols {
+                    data[i * cols + j] = self.get(i, j) $op other.get(i, j);
+                }   
+            }
+    
+            let op = Some(Operator::Binary(self.clone(), other.clone(), $op_type));
+    
+            Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op))))
+        }
+        
+    };
+}
+
 
 impl Matrix {
 
@@ -119,6 +144,10 @@ impl Matrix {
         self.0.is_var
     }
 
+    pub fn data(&self) -> &Vec<f32> {
+        &self.0.data
+    }
+
     pub fn get(&self, row_i: usize, col_j: usize) -> f32 {
         let (_, cols) = self.shape();
         self.0.data[row_i * cols + col_j]
@@ -132,9 +161,6 @@ impl Matrix {
         if a_cols != b_rows {
             return Err("Shape mismatch error: columns of self do not match rows of other".to_string());
         }
-        // a_rows = 1, a_cols = 1
-        // b_rows = 1, b_cols = 2
-        // 
         let shape = (a_rows, b_cols);
         let mut data = vec![0.; a_rows * b_cols];
         for i in 0..a_rows {
@@ -145,50 +171,16 @@ impl Matrix {
             }   
         }
 
-        let op = Some(Operator::MatMul(self.clone(), other.clone()));
+        let op = Some(Operator::Binary(self.clone(), other.clone(), MatMul));
 
         Ok(Self(Rc::new(Matrix_::new(data, shape, op))))
     }
 
-    pub fn add(&self, other: &Self) -> Result<Self, String> {
-
-        if self.shape() != other.shape() {
-            return Err("Shape mismatch error: columns or rows of self do not match columns or rows of other".to_string());
-        }
-
-        let (rows, cols) = self.shape();
-
-        let mut data = vec![0.; rows * cols];
-        for i in 0..rows {
-            for j in 0..cols {
-                data[i * cols + j] = self.get(i, j) + other.get(i, j);
-            }   
-        }
-
-        let op = Some(Operator::Add(self.clone(), other.clone()));
-
-        Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op))))
-    }
-
-    pub fn mul(&self, other: &Self) -> Result<Self, String> {
-
-        if self.shape() != other.shape() {
-            return Err("Shape mismatch error: columns or rows of self do not match columns or rows of other".to_string());
-        }
-
-        let (rows, cols) = self.shape();
-
-        let mut data = vec![0.; rows * cols];
-        for i in 0..rows {
-            for j in 0..cols {
-                data[i * cols + j] = self.get(i, j) * other.get(i, j);
-            }   
-        }
-
-        let op = Some(Operator::Mul(self.clone(), other.clone()));
-
-        Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op))))
-    }
+    binary_operator!(add, +, Add);
+    binary_operator!(mul, *, Mul);
+    binary_operator!(sub, -, Sub);
+    binary_operator!(div, /, Div);
+    
 
     pub fn t(&self) -> Matrix {
         let (rows, cols) = self.shape();
@@ -198,139 +190,9 @@ impl Matrix {
                 data[i * cols + j] += self.get(i, j);
             }   
         }
-        let op = Some(Operator::Transpose(self.clone()));
+        let op = Some(Operator::Unary(self.clone(), Transpose));
 
         Self(Rc::new(Matrix_::new(data, (cols, rows), op)))
     }
 
-    pub fn visit<'a>(
-        node: &'a Matrix, 
-        nodes: Vec<&'a Matrix>, 
-        already_seen: &mut HashMap<usize, bool>
-    ) -> (bool, Vec<&'a Matrix>) {
-
-        if let Some(&visited) = already_seen.get(&node.id()) {
-            return (visited, nodes);
-        }
-        let mut visited = false;
-        let mut nodes = if node.is_variable() {
-            visited = true;
-            nodes
-        } else if let Some(op) = node.op() {
-            match op {
-                Operator::Add(lhs, rhs) | 
-                Operator::Mul(lhs, rhs) | 
-                Operator::MatMul(lhs, rhs) => {
-                    let (vis, nodes) = Matrix::visit(lhs, nodes, already_seen);
-                    visited |= vis;
-                    
-                    let (vis, nodes) = Matrix::visit(rhs, nodes, already_seen);
-                    visited |= vis;
-                    nodes
-                },
-                Operator::Transpose(mat) => {
-                    let (vis, nodes) = Matrix::visit(mat, nodes, already_seen);
-                    visited |= vis;
-                    nodes
-                }
-            }
-        } else {
-            nodes
-        };
-
-        already_seen.insert(node.id(), visited);
-        if visited {
-            nodes.push(node);
-        }
-        (visited, nodes)
-    }
-
-    pub fn topological_sort(&self) -> Vec<&Matrix> {
-        let (_, mut sorted_nodes) = Matrix::visit(self, vec![], &mut HashMap::new()); 
-        sorted_nodes.reverse();
-        sorted_nodes
-    }
-
-    pub fn backward(&self) -> Result<GradStore, String> {
-        
-        let sorted_nodes = self.topological_sort(); 
-        let mut grads = GradStore::new();
-        grads.insert(self, Matrix::ones(self.shape()));
-
-        for node in sorted_nodes.iter() {
-            // if node.is_variable() {
-            //     continue;
-            // }
-            let grad = grads.remove(node).unwrap();
-            if let Some(op) = node.op() {
-                match op {
-                    Operator::MatMul(lhs, rhs) => {
-                        // C = A @ B
-                        // 
-                        // A' += [1] @ B
-                        // B' += A.T @ [1]
-                        let lhs_grad = grad.matmul(&rhs.t())?;
-                        let lhs_sum_grad = grads.or_insert(lhs);
-                        *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
-
-                        let rhs_grad = lhs.t().matmul(&grad)?;
-                        let rhs_sum_grad = grads.or_insert(rhs);
-                        *rhs_sum_grad = rhs_sum_grad.add(&rhs_grad)?;
-                    },
-                    Operator::Add(lhs, rhs) => {
-
-                    },
-                    Operator::Mul(lhs, rhs) => {
-
-                    },
-                    Operator::Transpose(mat) => {
-
-                    }
-                }
-            }
-        }
-        println!("{:?}", sorted_nodes.len());
-
-        Ok(grads)
-    }
-
-}
-
-use std::sync::atomic::{AtomicUsize, Ordering};
-fn get_id() -> usize {
-    static COUNTER:AtomicUsize = AtomicUsize::new(1);
-    COUNTER.fetch_add(1, Ordering::Relaxed)
-}
-
-#[derive(Debug)]
-pub struct GradStore(HashMap<usize, Matrix>);
-
-impl GradStore {
-    pub fn new() -> Self {
-        GradStore(HashMap::new())
-    }
-
-    pub fn get(&self, id: usize) -> Option<&Matrix> {
-        self.0.get(&id)
-    }
-
-    pub fn insert(&mut self, mat: &Matrix, grad: Matrix) -> Option<Matrix> {
-        self.0.insert(mat.id(), grad)
-    }
-
-    pub fn remove(&mut self, mat: &Matrix) -> Option<Matrix> {
-        self.0.remove(&mat.id())
-    }
-
-    fn or_insert(&mut self, mat: &Matrix) -> &mut Matrix {
-        use std::collections::hash_map::Entry;
-        let grad = match self.0.entry(mat.id()) {
-            Entry::Occupied(entry) => entry.into_mut(),
-            Entry::Vacant(entry) => {
-                let grad = Matrix::zeros(mat.shape());
-                entry.insert(grad)
-            }
-        };
-        grad
-    }
 }
