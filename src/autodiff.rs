@@ -24,12 +24,26 @@ pub enum Operator {
     Unary(Matrix, UnaryOpType)
 }
 
-#[derive(Debug)]
-pub struct GradStore(HashMap<usize, Matrix>);
+impl Operator {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Binary(_, _, BinaryOpType::Add) => "Add".to_string(),
+            Self::Binary(_, _, BinaryOpType::Sub) => "Sub".to_string(),
+            Self::Binary(_, _, BinaryOpType::Mul) => "Mul".to_string(),
+            Self::Binary(_, _, BinaryOpType::Div) => "Div".to_string(),
+            Self::Binary(_, _, BinaryOpType::MatMul) => "MatMul".to_string(),
+            Self::Unary(_, UnaryOpType::Sigmoid) => "Sigmoid".to_string(),
+            Self::Unary(_, UnaryOpType::Transpose) => "Transpose".to_string(),
+        }
+    } 
+}
 
-impl GradStore {
+#[derive(Debug)]
+pub struct GradMap(HashMap<usize, Matrix>);
+
+impl GradMap {
     pub fn new() -> Self {
-        GradStore(HashMap::new())
+        Self(HashMap::new())
     }
 
     pub fn get(&self, id: usize) -> Option<&Matrix> {
@@ -39,6 +53,10 @@ impl GradStore {
     pub fn insert(&mut self, mat: &Matrix, grad: Matrix) -> Option<Matrix> {
         self.0.insert(mat.id(), grad)
     }
+
+    // pub fn insert_id(&mut self, id: usize, grad: Matrix) -> Option<Matrix> {
+    //     self.0.insert(id, grad)
+    // }
 
     pub fn remove(&mut self, mat: &Matrix) -> Option<Matrix> {
         self.0.remove(&mat.id())
@@ -57,65 +75,93 @@ impl GradStore {
     }
 }
 
+// fn visit2<'a>(
+//     node: &'a Matrix, 
+//     nodes: Vec<&'a Matrix>, 
+//     already_seen: &mut HashMap<usize, bool>
+// ) -> (bool, Vec<&'a Matrix>) {
+
+//     if let Some(&visited) = already_seen.get(&node.id()) {
+//         return (visited, nodes);
+//     }
+//     let mut visited = false;
+//     let mut nodes = if node.is_variable() {
+//         visited = true;
+//         nodes
+//     } else if let Some(op) = node.op() {
+//         match op {
+//             Operator::Binary(lhs, rhs, _) => {
+//                 let (vis, nodes) = visit(lhs, nodes, already_seen);
+//                 visited |= vis;
+                
+//                 let (vis, nodes) = visit(rhs, nodes, already_seen);
+//                 visited |= vis;
+//                 nodes
+//             },
+//             Operator::Unary(mat, _) => {
+//                 let (vis, nodes) = visit(mat, nodes, already_seen);
+//                 visited |= vis;
+//                 nodes
+//             }
+//         }
+//     } else {
+//         nodes
+//     };
+
+//     already_seen.insert(node.id(), visited);
+//     if visited {
+//         nodes.push(node);
+//     }
+//     (visited, nodes)
+// }
+
 fn visit<'a>(
     node: &'a Matrix, 
     nodes: Vec<&'a Matrix>, 
     already_seen: &mut HashMap<usize, bool>
-) -> (bool, Vec<&'a Matrix>) {
+) -> Vec<&'a Matrix> {
 
-    if let Some(&visited) = already_seen.get(&node.id()) {
-        return (visited, nodes);
-    }
-    let mut visited = false;
-    let mut nodes = if node.is_variable() {
-        visited = true;
-        nodes
-    } else if let Some(op) = node.op() {
+    already_seen.insert(node.id(), true);
+
+    let mut nodes = if let Some(op) = node.op() {
         match op {
             Operator::Binary(lhs, rhs, _) => {
-                let (vis, nodes) = visit(lhs, nodes, already_seen);
-                visited |= vis;
-                
-                let (vis, nodes) = visit(rhs, nodes, already_seen);
-                visited |= vis;
+                let nodes = visit(lhs, nodes, already_seen);
+                let nodes = visit(rhs, nodes, already_seen);
                 nodes
             },
             Operator::Unary(mat, _) => {
-                let (vis, nodes) = visit(mat, nodes, already_seen);
-                visited |= vis;
+                let nodes = visit(mat, nodes, already_seen);
                 nodes
             }
         }
     } else {
-        nodes
+        return nodes;
     };
-
-    already_seen.insert(node.id(), visited);
-    if visited {
-        nodes.push(node);
-    }
-    (visited, nodes)
+    nodes.push(node);
+    nodes
 }
 
 
 impl Matrix {
 
     pub fn topological_sort(&self) -> Vec<&Matrix> {
-        let (_, mut sorted_nodes) = visit(self, vec![], &mut HashMap::new()); 
+        let mut sorted_nodes = visit(self, vec![], &mut HashMap::new()); 
         sorted_nodes.reverse();
         sorted_nodes
     }
 
-    pub fn backward(&self) -> Result<GradStore, String> {
+    pub fn backward(&self) -> Result<GradMap, String> {
         
-        let sorted_nodes = self.topological_sort(); 
-        let mut grads = GradStore::new();
+        let sorted_nodes = self.topological_sort();
+        println!("{:?}", sorted_nodes.clone().into_iter().map(|x| x.id()).collect::<Vec<usize>>());
+        let mut grads = GradMap::new();
         grads.insert(self, Matrix::ones(self.shape()));
 
         for node in sorted_nodes.iter() {
-            // if node.is_variable() {
-            //     continue;
-            // }
+            if !node.is_variable() {
+                continue;
+            }
             let grad = grads.remove(node).unwrap();
             if let Some(op) = node.op() {
                 match op {
@@ -132,9 +178,57 @@ impl Matrix {
                         let rhs_sum_grad = grads.or_insert(rhs);
                         *rhs_sum_grad = rhs_sum_grad.add(&rhs_grad)?;
                     },
+                    Operator::Binary(lhs, rhs, BinaryOpType::Add) => {
+                        let lhs_sum_grad = grads.or_insert(lhs);
+                        *lhs_sum_grad = lhs_sum_grad.add(&grad)?;
+
+                        let rhs_sum_grad = grads.or_insert(rhs);
+                        *rhs_sum_grad = rhs_sum_grad.add(&grad)?;
+                    },
+                    Operator::Binary(lhs, rhs, BinaryOpType::Sub) => {
+                        let lhs_sum_grad = grads.or_insert(lhs);
+                        *lhs_sum_grad = lhs_sum_grad.add(&grad)?;
+
+                        let rhs_grad = grad.mul(&Matrix::fill(rhs.shape(), -1.))?;
+                        let rhs_sum_grad = grads.or_insert(rhs);
+                        *rhs_sum_grad = rhs_sum_grad.add(&rhs_grad)?;
+                    },
+                    Operator::Binary(lhs, rhs, BinaryOpType::Mul) => {
+                        let lhs_grad = grad.mul(&rhs)?;
+                        let lhs_sum_grad = grads.or_insert(lhs);
+                        *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
+
+                        let rhs_grad = grad.mul(&lhs)?;
+                        let rhs_sum_grad = grads.or_insert(rhs);
+                        *rhs_sum_grad = rhs_sum_grad.add(&rhs_grad)?;
+                    },
+                    Operator::Binary(lhs, rhs, BinaryOpType::Div) => {
+                        // c = a/b
+                        // a/b => a' = 1/b
+                        // a/b => b' = -a * b^(-2) => -a/b^2
+                        // 
+                        // x/5 = 1/5 * x = 1/5
+                        // 5/x = 5 * 1/x = 5 * x^(-2) = 5 * -1 * x^(-2) = -5 * x^(-2) => -5/x^2
+                        let lhs_grad = grad.mul(&Matrix::ones(rhs.shape()).div(&rhs)?)?;
+                        let lhs_sum_grad = grads.or_insert(lhs);
+                        *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
+
+                        let negative_lhs = lhs.mul(&Matrix::fill(lhs.shape(), -1.))?;
+                        let rhs_squared = rhs.mul(&rhs)?;
+                        let rhs_grad = grad.mul(&negative_lhs.div(&rhs_squared)?)?;
+                        let rhs_sum_grad = grads.or_insert(rhs);
+                        *rhs_sum_grad = rhs_sum_grad.add(&rhs_grad)?;
+                    },
+                    Operator::Unary(mat, UnaryOpType::Sigmoid) => {
+
+                    },
+                    Operator::Unary(mat, UnaryOpType::Transpose) => {
+
+                    },
                     _ => {}
                 }
             }
+            grads.insert(node, grad);
         }
 
         Ok(grads)

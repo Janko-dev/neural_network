@@ -14,15 +14,9 @@ use crate::{
         Transpose
     }
 };
-
-// #[derive(Debug, Clone)]
-// enum OpType {
-//     Binary(Tensor, Tensor, Operator),
-//     Unary(Tensor, Operator)
-// }
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// get unique id 
 fn get_id() -> usize {
     static COUNTER:AtomicUsize = AtomicUsize::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)
@@ -110,6 +104,11 @@ impl Matrix {
         Self(Rc::new(Matrix_::new(data, shape, None)))
     }
 
+    pub fn fill(shape: (usize, usize), value: f32) -> Self {
+        let data = vec![value; shape.0 * shape.1];
+        Self(Rc::new(Matrix_::new(data, shape, None)))
+    }
+
     pub fn randn(from: f32, to: f32, shape: (usize, usize)) -> Self {
         Self(Rc::new(Matrix_::randn(from, to, shape)))
     }
@@ -120,12 +119,36 @@ impl Matrix {
 
     pub fn print(&self) {
         
-        let (_, cols) = self.shape();
+        let (rows, cols) = self.shape();
         println!("[");
         for x in self.0.data.chunks(cols) {
             println!("    {:?}", x);
         }
         println!("]");
+        println!("Shape: ({}, {})", rows, cols);
+    }
+
+    fn _print_comp_tree(&self, indent: usize) {
+        let mat_info = format!("matrix id: {}, var: {}, shape: {:?}", self.id(), self.is_variable(), self.shape());
+        if let Some(op) = self.op() {
+            println!("{:indent$}{} with op: {}", " ", mat_info, op.to_string(), indent=indent);
+            match op {
+                Operator::Binary(lhs, rhs, _) => {
+                    lhs._print_comp_tree(indent+4);
+                    rhs._print_comp_tree(indent+4);
+                },
+                Operator::Unary(val, _) => {
+                    val._print_comp_tree(indent+4);
+                }
+            }
+        } else {
+            println!("{:indent$}{}", " ", mat_info, indent=indent);
+        }
+    }
+
+    pub fn print_comp_tree(&self) {
+        
+        self._print_comp_tree(0);
     }
 
     pub fn shape(&self) -> (usize, usize) {
