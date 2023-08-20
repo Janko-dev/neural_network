@@ -26,35 +26,27 @@ use neural_network::Matrix;
 fn main() -> Result<(), Box<dyn Error>>{
 
     
-    // let a = Matrix::from_vec(vec![2.], (1, 1));    
-    // let b = Matrix::from_vec(vec![2.], (1, 1));
+    // let a = Matrix::from_vec(vec![0.4], (1, 1));
     
     // a.print();
-    // b.print();
 
-    // // let c = a.matmul(&b)?;
+    // let c = a.sigmoid();
 
-    // // (a+b) * a
-    // // a**2 + ab
-    // let d = a.add(&b)?;
-    // let c = d.mul(&a)?;
-    
     // c.print();
 
     // c.print_comp_tree();
 
     // println!("\nGrads");
     // let grads = c.backward()?;
+
     // grads.get(a.id()).unwrap().print();
-    // grads.get(b.id()).unwrap().print();
-    // grads.get(d.id()).unwrap().print();
 
     let w = Matrix::randn(0., 1., (2, 6));
     let b = Matrix::randn(0., 1., (2, 1));
 
     let x = Matrix::from_vec(vec![2., 1., -3., 4., -1., 0.5], (6, 1));
 
-    let y = w.matmul(&x)?.add(&b)?;
+    let y = w.matmul(&x)?.add(&b)?.sigmoid();
 
     y.print();
 
@@ -63,6 +55,8 @@ fn main() -> Result<(), Box<dyn Error>>{
     let grads = y.backward()?;
     grads.get(w.id()).unwrap().print();
     w.print();
+
+    let w = w.sub(grads.get(w.id()).unwrap())?;
 
     Ok(())
     

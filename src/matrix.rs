@@ -48,7 +48,7 @@ impl Matrix_ {
             id: get_id(), 
             data: Rc::new(data),
             shape: (m, n),
-            is_var: false, 
+            is_var: true, 
             optype: None 
         }
     }
@@ -137,7 +137,8 @@ impl Matrix {
                     lhs._print_comp_tree(indent+4);
                     rhs._print_comp_tree(indent+4);
                 },
-                Operator::Unary(val, _) => {
+                Operator::Unary(val, _) | 
+                Operator::BinaryScalar(val, _) => {
                     val._print_comp_tree(indent+4);
                 }
             }
@@ -199,6 +200,22 @@ impl Matrix {
         Ok(Self(Rc::new(Matrix_::new(data, shape, op))))
     }
 
+    pub fn mul_scalar(&self, other: f32) -> Result<Self, String> {
+
+        let (rows, cols) = self.shape();
+    
+        let mut data = vec![0.; rows * cols];
+        for i in 0..rows {
+            for j in 0..cols {
+                data[i * cols + j] = self.get(i, j) * other;
+            }   
+        }
+
+        let op = Some(Operator::BinaryScalar(self.clone(), other));
+
+        Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op))))
+    }
+
     binary_operator!(add, +, Add);
     binary_operator!(mul, *, Mul);
     binary_operator!(sub, -, Sub);
@@ -216,6 +233,23 @@ impl Matrix {
         let op = Some(Operator::Unary(self.clone(), Transpose));
 
         Self(Rc::new(Matrix_::new(data, (cols, rows), op)))
+    }
+
+    fn _sigmoid(x: f32) -> f32 {
+        1./(1. + (-x).exp())
+    }
+
+    pub fn sigmoid(&self) -> Matrix {
+        let (rows, cols) = self.shape();
+        let mut data = vec![0.; rows * cols];
+        for i in 0..rows {
+            for j in 0..cols {
+                data[i * cols + j] += Matrix::_sigmoid(self.get(i, j));
+            }   
+        }
+        let op = Some(Operator::Unary(self.clone(), Sigmoid));
+
+        Self(Rc::new(Matrix_::new(data, (rows, cols), op)))
     }
 
 }
