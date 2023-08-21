@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, ops::{DerefMut, Deref}, borrow::BorrowMut, cell::{RefCell, Ref}};
 use rand::prelude::*;
 use crate::{
     Operator, 
@@ -12,6 +12,10 @@ use crate::{
     UnaryOpType::{
         Sigmoid,
         Transpose
+    },
+    BinaryScalarOpType::{
+        MulScalar,
+        Powf32
     }
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -63,6 +67,11 @@ impl Matrix_ {
             optype: op 
         }
     }
+
+    fn reset_operator(&mut self) {
+        
+    }
+
 }
 
 macro_rules! binary_operator {
@@ -130,7 +139,7 @@ impl Matrix {
 
     fn _print_comp_tree(&self, indent: usize) {
         let mat_info = format!("matrix id: {}, var: {}, shape: {:?}", self.id(), self.is_variable(), self.shape());
-        if let Some(op) = self.op() {
+        if let Some(op) = self.op().deref() {
             println!("{:indent$}{} with op: {}", " ", mat_info, op.to_string(), indent=indent);
             match op {
                 Operator::Binary(lhs, rhs, _) => {
@@ -138,7 +147,7 @@ impl Matrix {
                     rhs._print_comp_tree(indent+4);
                 },
                 Operator::Unary(val, _) | 
-                Operator::BinaryScalar(val, _) => {
+                Operator::BinaryScalar(val, _, _) => {
                     val._print_comp_tree(indent+4);
                 }
             }
@@ -152,6 +161,10 @@ impl Matrix {
         self._print_comp_tree(0);
     }
 
+    pub fn no_history(&self) -> Self{
+        Self(Rc::new(Matrix_::new(self.data().clone(), self.shape(), None)))
+    }
+
     pub fn shape(&self) -> (usize, usize) {
         self.0.shape
     }
@@ -160,7 +173,7 @@ impl Matrix {
         self.0.id
     }
 
-    pub fn op(&self) -> &Option<Operator> {
+    pub fn op(&self) -> &Option<Operator>{
         &self.0.optype
     }
 
@@ -200,7 +213,7 @@ impl Matrix {
         Ok(Self(Rc::new(Matrix_::new(data, shape, op))))
     }
 
-    pub fn mul_scalar(&self, other: f32) -> Result<Self, String> {
+    pub fn mul_scalar(&self, other: f32) -> Self {
 
         let (rows, cols) = self.shape();
     
@@ -211,9 +224,25 @@ impl Matrix {
             }   
         }
 
-        let op = Some(Operator::BinaryScalar(self.clone(), other));
+        let op = Some(Operator::BinaryScalar(self.clone(), other, MulScalar));
 
-        Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op))))
+        Self(Rc::new(Matrix_::new(data, self.shape(), op)))
+    }
+
+    pub fn powf(&self, other: f32) -> Self {
+
+        let (rows, cols) = self.shape();
+    
+        let mut data = vec![0.; rows * cols];
+        for i in 0..rows {
+            for j in 0..cols {
+                data[i * cols + j] = self.get(i, j).powf(other);
+            }   
+        }
+
+        let op = Some(Operator::BinaryScalar(self.clone(), other, Powf32));
+
+        Self(Rc::new(Matrix_::new(data, self.shape(), op)))
     }
 
     binary_operator!(add, +, Add);
@@ -252,4 +281,44 @@ impl Matrix {
         Self(Rc::new(Matrix_::new(data, (rows, cols), op)))
     }
 
+}
+
+impl Into<Matrix> for Vec<f32> {
+    fn into(self) -> Matrix {
+        let len = self.len();
+        Matrix::from_vec(self, (len, 1))
+    }
+}
+
+impl Into<Matrix> for &Vec<f32> {
+    fn into(self) -> Matrix {
+        let len = self.len();
+        Matrix::from_vec(self.clone(), (len, 1))
+    }
+}
+
+impl Into<Matrix> for Vec<Vec<f32>> {
+    fn into(self) -> Matrix {
+        let rows = self.len();
+        let cols = if let Some(cols) = self.get(0) {
+            cols.len()
+        } else {
+            0
+        };
+
+        for v in self.iter() {
+            if v.len() == cols {
+                continue;
+            } else {
+                return Matrix::from_vec(vec![], (0, 0));
+            }
+        }
+        
+        let data = self
+            .into_iter()
+            .flat_map(|v| v.into_iter())
+            .collect::<Vec<f32>>();
+
+        Matrix::from_vec(data, (rows, cols))
+    }
 }

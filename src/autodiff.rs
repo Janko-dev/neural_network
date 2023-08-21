@@ -17,11 +17,16 @@ pub enum UnaryOpType {
     Sigmoid
 }
 
+#[derive(Debug, Clone)]
+pub enum BinaryScalarOpType {
+    MulScalar,
+    Powf32
+}
 
 #[derive(Debug, Clone)]
 pub enum Operator {
     Binary(Matrix, Matrix, BinaryOpType),
-    BinaryScalar(Matrix, f32),
+    BinaryScalar(Matrix, f32, BinaryScalarOpType),
     Unary(Matrix, UnaryOpType)
 }
 
@@ -34,7 +39,8 @@ impl Operator {
             Self::Binary(_, _, BinaryOpType::Div) => "Div".to_string(),
             Self::Binary(_, _, BinaryOpType::MatMul) => "MatMul".to_string(),
             
-            Self::BinaryScalar(_, _) => "MulScalar".to_string(),
+            Self::BinaryScalar(_, _, BinaryScalarOpType::MulScalar) => "MulScalar".to_string(),
+            Self::BinaryScalar(_, _, BinaryScalarOpType::Powf32) => "MulScalar".to_string(),
             
             Self::Unary(_, UnaryOpType::Sigmoid) => "Sigmoid".to_string(),
             Self::Unary(_, UnaryOpType::Transpose) => "Transpose".to_string(),
@@ -92,7 +98,7 @@ fn visit<'a>(
                 nodes
             },
             Operator::Unary(mat, _) |
-            Operator::BinaryScalar(mat, _) => {
+            Operator::BinaryScalar(mat, _, _) => {
                 let nodes = visit(mat, nodes, already_seen);
                 nodes
             }
@@ -192,8 +198,14 @@ impl Matrix {
                         let mat_sum_grad = grads.or_insert(mat);
                         *mat_sum_grad = mat_sum_grad.add(&mat_grad)?;
                     },
-                    Operator::BinaryScalar(lhs, rhs) => {
-                        let lhs_grad = grad.mul_scalar(*rhs)?;
+                    Operator::BinaryScalar(lhs, rhs, BinaryScalarOpType::MulScalar) => {
+                        let lhs_grad = grad.mul_scalar(*rhs);
+                        let lhs_sum_grad = grads.or_insert(lhs);
+                        *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
+                    },
+                    Operator::BinaryScalar(lhs, rhs, BinaryScalarOpType::Powf32) => {
+                        // x^2 => 
+                        let lhs_grad = grad.mul_scalar(*rhs).mul(&lhs.powf((*rhs)-1.))?;
                         let lhs_sum_grad = grads.or_insert(lhs);
                         *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
                     },

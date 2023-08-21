@@ -1,27 +1,6 @@
 use std::error::Error;
 
-use neural_network::Matrix;
-
-// fn main(){
-//     let mut stride: Vec<_> = vec![2, 3]
-//         .iter()
-//         .rev()
-//         .scan(1, |prod, u| {
-//             let prod_pre_mult = *prod;
-//             *prod *= u;
-//             Some(prod_pre_mult)
-//         })
-//         .collect();
-//     stride.reverse();
-//     dbg!(stride);
-//     // 1 2 3 4 5 6
-//     // shape (2, 3)
-//     // 1 2 3
-//     // 4 5 6
-
-//     // stride (3, 1)
-//     // 
-// }
+use neural_network::{Matrix, NN};
 
 fn main() -> Result<(), Box<dyn Error>>{
 
@@ -41,23 +20,21 @@ fn main() -> Result<(), Box<dyn Error>>{
 
     // grads.get(a.id()).unwrap().print();
 
-    let w = Matrix::randn(0., 1., (2, 6));
-    let b = Matrix::randn(0., 1., (2, 1));
+    let x_train = vec![
+        vec![0., 0.],
+        vec![0., 1.],
+        vec![1., 0.],
+        vec![1., 1.],
+    ];
 
-    let x = Matrix::from_vec(vec![2., 1., -3., 4., -1., 0.5], (6, 1));
+    let y_train = vec![0., 1., 1., 0.];
 
-    let y = w.matmul(&x)?.add(&b)?.sigmoid();
-
-    y.print();
-
-    y.print_comp_tree();
-
-    let grads = y.backward()?;
-    grads.get(w.id()).unwrap().print();
-    w.print();
-
-    let w = w.sub(grads.get(w.id()).unwrap())?;
+    let mut nn = NN::new(vec![2, 3, 1], 0.3);
+    
+    for _ in 0..10 {
+        let loss = nn.train(&x_train, &y_train)?;
+        println!("loss: {}", loss);
+    }
 
     Ok(())
-    
 }
