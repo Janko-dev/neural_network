@@ -8,8 +8,8 @@ mod tests {
     #[test]
     fn backprop_basic_operators() -> Result<(), Box<dyn Error>> {
 
-        let a = Matrix::from_vec(vec![2., 3.], (1, 2));
-        let b = Matrix::from_vec(vec![4., 2.], (1, 2));
+        let a = Matrix::from_vec(vec![2., 3.], (1, 2), true);
+        let b = Matrix::from_vec(vec![4., 2.], (1, 2), true);
 
         let c = a.add(&b)?;
         let d = a.sub(&b)?;

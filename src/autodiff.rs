@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::Matrix;
+use crate::{Matrix, error::MatrixError};
 
 #[derive(Debug, Clone)]
 pub enum BinaryOpType {
@@ -44,7 +44,6 @@ impl Operator {
             
             Self::Unary(_, UnaryOpType::Sigmoid) => "Sigmoid".to_string(),
             Self::Unary(_, UnaryOpType::Transpose) => "Transpose".to_string(),
-            
         }
     } 
 }
@@ -74,7 +73,7 @@ impl GradMap {
         let grad = match self.0.entry(mat.id()) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
-                let grad = Matrix::zeros(mat.shape());
+                let grad = Matrix::zeros(mat.shape(), mat.requires_grad());
                 entry.insert(grad)
             }
         };
@@ -119,15 +118,15 @@ impl Matrix {
         sorted_nodes
     }
 
-    pub fn backward(&self) -> Result<GradMap, String> {
+    pub fn backward(&self) -> Result<GradMap, MatrixError> {
         
         let sorted_nodes = self.topological_sort();
         // println!("{:?}", sorted_nodes.clone().into_iter().map(|x| x.id()).collect::<Vec<usize>>());
         let mut grads = GradMap::new();
-        grads.insert(self, Matrix::ones(self.shape()));
+        grads.insert(self, Matrix::ones(self.shape(), self.requires_grad()));
 
         for node in sorted_nodes.iter() {
-            if !node.is_variable() {
+            if !node.requires_grad() {
                 continue;
             }
             let grad = grads.remove(node).unwrap();
@@ -157,7 +156,7 @@ impl Matrix {
                         let lhs_sum_grad = grads.or_insert(lhs);
                         *lhs_sum_grad = lhs_sum_grad.add(&grad)?;
 
-                        let rhs_grad = grad.mul(&Matrix::fill(rhs.shape(), -1.))?;
+                        let rhs_grad = grad.mul(&Matrix::fill(rhs.shape(), -1., rhs.requires_grad()))?;
                         let rhs_sum_grad = grads.or_insert(rhs);
                         *rhs_sum_grad = rhs_sum_grad.add(&rhs_grad)?;
                     },
@@ -177,11 +176,11 @@ impl Matrix {
                         // 
                         // x/5 = 1/5 * x = 1/5
                         // 5/x = 5 * 1/x = 5 * x^(-2) = 5 * -1 * x^(-2) = -5 * x^(-2) => -5/x^2
-                        let lhs_grad = grad.mul(&Matrix::ones(rhs.shape()).div(&rhs)?)?;
+                        let lhs_grad = grad.mul(&Matrix::ones(rhs.shape(), rhs.requires_grad()).div(&rhs)?)?;
                         let lhs_sum_grad = grads.or_insert(lhs);
                         *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
 
-                        let negative_lhs = lhs.mul(&Matrix::fill(lhs.shape(), -1.))?;
+                        let negative_lhs = lhs.mul(&Matrix::fill(lhs.shape(), -1., lhs.requires_grad()))?;
                         let rhs_squared = rhs.mul(&rhs)?;
                         let rhs_grad = grad.mul(&negative_lhs.div(&rhs_squared)?)?;
                         let rhs_sum_grad = grads.or_insert(rhs);
@@ -193,7 +192,7 @@ impl Matrix {
                         *mat_sum_grad = mat_sum_grad.add(&mat_grad)?;
                     },
                     Operator::Unary(mat, UnaryOpType::Sigmoid) => {
-                        let sigmoid_der = node.mul(&Matrix::ones(node.shape()).sub(&node)?)?;                        
+                        let sigmoid_der = node.mul(&Matrix::ones(node.shape(), node.requires_grad()).sub(&node)?)?;                        
                         let mat_grad = grad.mul(&sigmoid_der)?;
                         let mat_sum_grad = grads.or_insert(mat);
                         *mat_sum_grad = mat_sum_grad.add(&mat_grad)?;

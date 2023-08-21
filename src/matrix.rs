@@ -1,4 +1,4 @@
-use std::{rc::Rc, ops::{DerefMut, Deref}, borrow::BorrowMut, cell::{RefCell, Ref}};
+use std::rc::Rc;
 use rand::prelude::*;
 use crate::{
     Operator, 
@@ -16,6 +16,11 @@ use crate::{
     BinaryScalarOpType::{
         MulScalar,
         Powf32
+    }, 
+    error::MatrixError::{
+        BroadCastError,
+        ShapeMismatchError, 
+        self
     }
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,15 +36,22 @@ struct Matrix_ {
     id: usize,
     data: Rc<Vec<f32>>,
     shape: (usize, usize), // (rows, cols)
-    is_var: bool,
+    with_grad: bool,
     optype: Option<Operator>
 }
 
 #[derive(Debug, Clone)]
 pub struct Matrix(Rc<Matrix_>);
 
+type MatrixResult = Result<Matrix, MatrixError>;
+
 impl Matrix_ {
-    fn randn(from: f32, to: f32, (m, n): (usize, usize)) -> Self {  
+    fn randn(
+        from: f32, 
+        to: f32, 
+        (m, n): (usize, usize), 
+        with_grad: bool
+    ) -> Self {  
         
         let size = m*n;
 
@@ -52,24 +64,25 @@ impl Matrix_ {
             id: get_id(), 
             data: Rc::new(data),
             shape: (m, n),
-            is_var: true, 
+            with_grad,
             optype: None 
         }
     }
 
-    fn new(data: Vec<f32>, (m, n): (usize, usize), op: Option<Operator>) -> Self {  
+    fn new(
+        data: Vec<f32>, 
+        (m, n): (usize, usize), 
+        op: Option<Operator>, 
+        with_grad: bool
+    ) -> Self {  
         
         Self { 
             id: get_id(), 
             data: Rc::new(data),
             shape: (m, n),
-            is_var: true, 
+            with_grad,
             optype: op 
         }
-    }
-
-    fn reset_operator(&mut self) {
-        
     }
 
 }
@@ -77,10 +90,14 @@ impl Matrix_ {
 macro_rules! binary_operator {
     ($name: ident, $op: tt, $op_type: expr) => {
         
-        pub fn $name(&self, other: &Self) -> Result<Self, String> {
-
+        pub fn $name(&self, other: &Self) -> MatrixResult {
+            
             if self.shape() != other.shape() {
-                return Err("Shape mismatch error: columns or rows of self do not match columns or rows of other".to_string());
+                return Err(ShapeMismatchError{
+                    a_shape: self.shape(),
+                    b_shape: other.shape(),
+                    op: stringify!($name).to_string()
+                });
             }
     
             let (rows, cols) = self.shape();
@@ -94,7 +111,7 @@ macro_rules! binary_operator {
     
             let op = Some(Operator::Binary(self.clone(), other.clone(), $op_type));
     
-            Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op))))
+            Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op, self.requires_grad() || other.requires_grad()))))
         }
         
     };
@@ -103,27 +120,27 @@ macro_rules! binary_operator {
 
 impl Matrix {
 
-    pub fn ones(shape: (usize, usize)) -> Self {
+    pub fn ones(shape: (usize, usize), with_grad: bool) -> Self {
         let data = vec![1.; shape.0 * shape.1];
-        Self(Rc::new(Matrix_::new(data, shape, None)))
+        Self(Rc::new(Matrix_::new(data, shape, None, with_grad)))
     }
 
-    pub fn zeros(shape: (usize, usize)) -> Self {
+    pub fn zeros(shape: (usize, usize), with_grad: bool) -> Self {
         let data = vec![0.; shape.0 * shape.1];
-        Self(Rc::new(Matrix_::new(data, shape, None)))
+        Self(Rc::new(Matrix_::new(data, shape, None, with_grad)))
     }
 
-    pub fn fill(shape: (usize, usize), value: f32) -> Self {
+    pub fn fill(shape: (usize, usize), value: f32, with_grad: bool) -> Self {
         let data = vec![value; shape.0 * shape.1];
-        Self(Rc::new(Matrix_::new(data, shape, None)))
+        Self(Rc::new(Matrix_::new(data, shape, None, with_grad)))
     }
 
-    pub fn randn(from: f32, to: f32, shape: (usize, usize)) -> Self {
-        Self(Rc::new(Matrix_::randn(from, to, shape)))
+    pub fn randn(from: f32, to: f32, shape: (usize, usize), with_grad: bool) -> Self {
+        Self(Rc::new(Matrix_::randn(from, to, shape, with_grad)))
     }
 
-    pub fn from_vec(data: Vec<f32>, shape: (usize, usize)) -> Self {
-        Self(Rc::new(Matrix_::new(data, shape, None)))
+    pub fn from_vec(data: Vec<f32>, shape: (usize, usize), with_grad: bool) -> Self {
+        Self(Rc::new(Matrix_::new(data, shape, None, with_grad)))
     }
 
     pub fn print(&self) {
@@ -138,8 +155,8 @@ impl Matrix {
     }
 
     fn _print_comp_tree(&self, indent: usize) {
-        let mat_info = format!("matrix id: {}, var: {}, shape: {:?}", self.id(), self.is_variable(), self.shape());
-        if let Some(op) = self.op().deref() {
+        let mat_info = format!("matrix id: {}, use grad: {}, shape: {:?}", self.id(), self.requires_grad(), self.shape());
+        if let Some(op) = self.op() {
             println!("{:indent$}{} with op: {}", " ", mat_info, op.to_string(), indent=indent);
             match op {
                 Operator::Binary(lhs, rhs, _) => {
@@ -162,7 +179,7 @@ impl Matrix {
     }
 
     pub fn no_history(&self) -> Self{
-        Self(Rc::new(Matrix_::new(self.data().clone(), self.shape(), None)))
+        Self(Rc::new(Matrix_::new(self.data().clone(), self.shape(), None, self.requires_grad())))
     }
 
     pub fn shape(&self) -> (usize, usize) {
@@ -177,8 +194,8 @@ impl Matrix {
         &self.0.optype
     }
 
-    pub fn is_variable(&self) -> bool {
-        self.0.is_var
+    pub fn requires_grad(&self) -> bool {
+        self.0.with_grad
     }
 
     pub fn data(&self) -> &Vec<f32> {
@@ -190,13 +207,17 @@ impl Matrix {
         self.0.data[row_i * cols + col_j]
     }
 
-    pub fn matmul(&self, other: &Self) -> Result<Self, String> {
+    pub fn matmul(&self, other: &Self) -> MatrixResult {
 
         let (a_rows, a_cols) = self.shape();
         let (b_rows, b_cols) = other.shape();
 
         if a_cols != b_rows {
-            return Err("Shape mismatch error: columns of self do not match rows of other".to_string());
+            return Err(ShapeMismatchError { 
+                a_shape: (a_rows, a_cols), 
+                b_shape: (b_rows, b_cols), 
+                op: "matmul".to_string() 
+            });
         }
         let shape = (a_rows, b_cols);
         let mut data = vec![0.; a_rows * b_cols];
@@ -210,7 +231,7 @@ impl Matrix {
 
         let op = Some(Operator::Binary(self.clone(), other.clone(), MatMul));
 
-        Ok(Self(Rc::new(Matrix_::new(data, shape, op))))
+        Ok(Self(Rc::new(Matrix_::new(data, shape, op, self.requires_grad() || other.requires_grad()))))
     }
 
     pub fn mul_scalar(&self, other: f32) -> Self {
@@ -226,7 +247,7 @@ impl Matrix {
 
         let op = Some(Operator::BinaryScalar(self.clone(), other, MulScalar));
 
-        Self(Rc::new(Matrix_::new(data, self.shape(), op)))
+        Self(Rc::new(Matrix_::new(data, self.shape(), op, self.requires_grad())))
     }
 
     pub fn powf(&self, other: f32) -> Self {
@@ -242,14 +263,13 @@ impl Matrix {
 
         let op = Some(Operator::BinaryScalar(self.clone(), other, Powf32));
 
-        Self(Rc::new(Matrix_::new(data, self.shape(), op)))
+        Self(Rc::new(Matrix_::new(data, self.shape(), op, self.requires_grad())))
     }
 
     binary_operator!(add, +, Add);
     binary_operator!(mul, *, Mul);
     binary_operator!(sub, -, Sub);
     binary_operator!(div, /, Div);
-    
 
     pub fn t(&self) -> Matrix {
         let (rows, cols) = self.shape();
@@ -261,11 +281,7 @@ impl Matrix {
         }
         let op = Some(Operator::Unary(self.clone(), Transpose));
 
-        Self(Rc::new(Matrix_::new(data, (cols, rows), op)))
-    }
-
-    fn _sigmoid(x: f32) -> f32 {
-        1./(1. + (-x).exp())
+        Self(Rc::new(Matrix_::new(data, (cols, rows), op, self.requires_grad())))
     }
 
     pub fn sigmoid(&self) -> Matrix {
@@ -273,27 +289,31 @@ impl Matrix {
         let mut data = vec![0.; rows * cols];
         for i in 0..rows {
             for j in 0..cols {
-                data[i * cols + j] += Matrix::_sigmoid(self.get(i, j));
+                data[i * cols + j] += _sigmoid(self.get(i, j));
             }   
         }
         let op = Some(Operator::Unary(self.clone(), Sigmoid));
 
-        Self(Rc::new(Matrix_::new(data, (rows, cols), op)))
+        Self(Rc::new(Matrix_::new(data, (rows, cols), op, self.requires_grad())))
     }
 
+}
+
+fn _sigmoid(x: f32) -> f32 {
+    1./(1. + (-x).exp())
 }
 
 impl Into<Matrix> for Vec<f32> {
     fn into(self) -> Matrix {
         let len = self.len();
-        Matrix::from_vec(self, (len, 1))
+        Matrix::from_vec(self, (len, 1), false)
     }
 }
 
 impl Into<Matrix> for &Vec<f32> {
     fn into(self) -> Matrix {
         let len = self.len();
-        Matrix::from_vec(self.clone(), (len, 1))
+        Matrix::from_vec(self.clone(), (len, 1), false)
     }
 }
 
@@ -310,7 +330,7 @@ impl Into<Matrix> for Vec<Vec<f32>> {
             if v.len() == cols {
                 continue;
             } else {
-                return Matrix::from_vec(vec![], (0, 0));
+                return Matrix::from_vec(vec![], (0, 0), false);
             }
         }
         
@@ -319,6 +339,32 @@ impl Into<Matrix> for Vec<Vec<f32>> {
             .flat_map(|v| v.into_iter())
             .collect::<Vec<f32>>();
 
-        Matrix::from_vec(data, (rows, cols))
+        Matrix::from_vec(data, (rows, cols), false)
+    }
+}
+
+impl Into<Matrix> for &Vec<Vec<f32>> {
+    fn into(self) -> Matrix {
+        let rows = self.len();
+        let cols = if let Some(cols) = self.get(0) {
+            cols.len()
+        } else {
+            0
+        };
+
+        for v in self.iter() {
+            if v.len() == cols {
+                continue;
+            } else {
+                return Matrix::from_vec(vec![], (0, 0), false);
+            }
+        }
+        
+        let data = self.clone()
+            .into_iter()
+            .flat_map(|v| v.into_iter())
+            .collect::<Vec<f32>>();
+
+        Matrix::from_vec(data, (rows, cols), false)
     }
 }
