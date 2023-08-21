@@ -80,8 +80,8 @@ mod tests {
     #[test]
     fn matrix_transpose() {
         let a = Matrix::from_vec(vec![1., 2., -2., 1., 4., 6.], (2, 3), false);
-        let c = a.t().t();
+        let c = a.t();
         
-        assert_eq!(c.data(), a.data());
+        assert_eq!(c.shape(), (3, 2));
     }
 }

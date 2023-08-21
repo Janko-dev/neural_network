@@ -11,7 +11,8 @@ use crate::{
     },
     UnaryOpType::{
         Sigmoid,
-        Transpose
+        Transpose,
+        Broadcast
     },
     BinaryScalarOpType::{
         MulScalar,
@@ -91,7 +92,12 @@ macro_rules! binary_operator {
     ($name: ident, $op: tt, $op_type: expr) => {
         
         pub fn $name(&self, other: &Self) -> MatrixResult {
-            
+
+            // (a, b) + (c, d)
+            // (4, 4) + (4, 1)
+            // a == c: 
+            // broadcast true if 
+
             if self.shape() != other.shape() {
                 return Err(ShapeMismatchError{
                     a_shape: self.shape(),
@@ -281,6 +287,7 @@ impl Matrix {
         }
         let op = Some(Operator::Unary(self.clone(), Transpose));
 
+        // exchange cols and rows to get transpose matrix
         Self(Rc::new(Matrix_::new(data, (cols, rows), op, self.requires_grad())))
     }
 
@@ -293,6 +300,45 @@ impl Matrix {
             }   
         }
         let op = Some(Operator::Unary(self.clone(), Sigmoid));
+
+        Self(Rc::new(Matrix_::new(data, (rows, cols), op, self.requires_grad())))
+    }
+
+    pub fn broadcast_as(&self, (rows, cols): (usize, usize)) -> Matrix {
+    
+        // (1, 2) => (3, 2)
+
+        // [1, 2] => [1, 2]
+        //           [1, 2]
+        //           [1, 2]
+
+        let data = match self.shape() {
+            (1, _) => {
+                let mut data = vec![];
+                for _ in 0..rows {
+                    data.extend(self.data().iter());
+                }
+                data
+            },
+            (_, 1) => {
+                let mut data = vec![0.; rows * cols];
+                for i in 0..rows {
+                    for j in 0..cols {
+                        data[i * cols + j] = self.get(i, 0);
+                    }
+                }
+                data
+            },
+            _ => {
+                self.data().clone()
+            }
+        };
+
+        // (2, 1) => (2, 3)
+        // [4] => [4, 4, 4]
+        // [5]    [5, 5, 5]
+        
+        let op = Some(Operator::Unary(self.clone(), Broadcast));
 
         Self(Rc::new(Matrix_::new(data, (rows, cols), op, self.requires_grad())))
     }

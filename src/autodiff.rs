@@ -14,7 +14,8 @@ pub enum BinaryOpType {
 #[derive(Debug, Clone)]
 pub enum UnaryOpType {
     Transpose,
-    Sigmoid
+    Sigmoid,
+    Broadcast
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +45,7 @@ impl Operator {
             
             Self::Unary(_, UnaryOpType::Sigmoid) => "Sigmoid".to_string(),
             Self::Unary(_, UnaryOpType::Transpose) => "Transpose".to_string(),
+            Self::Unary(_, UnaryOpType::Broadcast) => "Broadcast".to_string(),
         }
     } 
 }
@@ -197,13 +199,21 @@ impl Matrix {
                         let mat_sum_grad = grads.or_insert(mat);
                         *mat_sum_grad = mat_sum_grad.add(&mat_grad)?;
                     },
+                    Operator::Unary(mat, UnaryOpType::Broadcast) => {
+                        
+                        let mat_sum_grad = grads.or_insert(mat);
+                        // grad.print();
+                        // node.print();
+                        // mat.print();
+                        // mat_sum_grad.print();
+                        *mat_sum_grad = mat_sum_grad.add(&grad.broadcast_as(mat.shape()))?;
+                    },
                     Operator::BinaryScalar(lhs, rhs, BinaryScalarOpType::MulScalar) => {
                         let lhs_grad = grad.mul_scalar(*rhs);
                         let lhs_sum_grad = grads.or_insert(lhs);
                         *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
                     },
                     Operator::BinaryScalar(lhs, rhs, BinaryScalarOpType::Powf32) => {
-                        // x^2 => 
                         let lhs_grad = grad.mul_scalar(*rhs).mul(&lhs.powf((*rhs)-1.))?;
                         let lhs_sum_grad = grads.or_insert(lhs);
                         *lhs_sum_grad = lhs_sum_grad.add(&lhs_grad)?;
