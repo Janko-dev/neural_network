@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, usize};
 use rand::prelude::*;
 use crate::{
     Operator, 
@@ -12,7 +12,8 @@ use crate::{
     UnaryOpType::{
         Sigmoid,
         Transpose,
-        Broadcast
+        Broadcast,
+        Sum
     },
     BinaryScalarOpType::{
         MulScalar,
@@ -93,31 +94,47 @@ macro_rules! binary_operator {
         
         pub fn $name(&self, other: &Self) -> MatrixResult {
 
-            // (a, b) + (c, d)
-            // (4, 4) + (4, 1)
-            // a == c: 
-            // broadcast true if 
+            let shape = Matrix::broadcast_shape(self.shape(), other.shape());
 
-            if self.shape() != other.shape() {
-                return Err(ShapeMismatchError{
-                    a_shape: self.shape(),
-                    b_shape: other.shape(),
-                    op: stringify!($name).to_string()
-                });
-            }
+            // println!("{:?}, {:?} => {:?}", self.shape(), other.shape(), shape);
+
+            let l_broadcast = shape != self.shape();
+            let r_broadcast = shape != other.shape();
+
+            // println!("{}, {}, {:?}", l_broadcast, r_broadcast, shape);
+
+            let (lhs, rhs) = match (l_broadcast, r_broadcast) {
+                (true, true) =>    (self.broadcast_as(shape)?, other.broadcast_as(shape)?),
+                (false, true) =>   (self.clone(), other.broadcast_as(shape)?),
+                (true, false) =>   (self.broadcast_as(shape)?, other.clone()),
+                (false, false) =>  (self.clone(), other.clone()),
+            };
+
+            // if self.shape() != other.shape() {
+            //     return Err(ShapeMismatchError{
+            //         a_shape: self.shape(),
+            //         b_shape: other.shape(),
+            //         op: stringify!($name).to_string()
+            //     });
+            // }
     
-            let (rows, cols) = self.shape();
+            let (rows, cols) = shape;
     
             let mut data = vec![0.; rows * cols];
+            // println!("lhs: {:?}", lhs.shape());
+            // lhs.print();
+            // println!("rhs: {:?}", rhs.shape());
+            // rhs.print();
             for i in 0..rows {
                 for j in 0..cols {
-                    data[i * cols + j] = self.get(i, j) $op other.get(i, j);
-                }   
+                    data[i * cols + j] = lhs.get(i, j) $op rhs.get(i, j);
+                }
             }
+
+            let req_grad = lhs.requires_grad() || rhs.requires_grad();
+            let op = Some(Operator::Binary(lhs, rhs, $op_type));
     
-            let op = Some(Operator::Binary(self.clone(), other.clone(), $op_type));
-    
-            Ok(Self(Rc::new(Matrix_::new(data, self.shape(), op, self.requires_grad() || other.requires_grad()))))
+            Ok(Self(Rc::new(Matrix_::new(data, shape, op, req_grad))))
         }
         
     };
@@ -304,7 +321,7 @@ impl Matrix {
         Self(Rc::new(Matrix_::new(data, (rows, cols), op, self.requires_grad())))
     }
 
-    pub fn broadcast_as(&self, (rows, cols): (usize, usize)) -> Matrix {
+    pub fn broadcast_as(&self, (rows, cols): (usize, usize)) -> MatrixResult {
     
         // (1, 2) => (3, 2)
 
@@ -312,15 +329,27 @@ impl Matrix {
         //           [1, 2]
         //           [1, 2]
 
-        let data = match self.shape() {
-            (1, _) => {
+        // (2, 1) => (2, 3)
+        
+        // [4] => [4, 4, 4]
+        // [5]    [5, 5, 5]
+
+
+        // (1, 1) => (1, 4)
+
+        // [2] => 
+
+        let data = match (self.shape(), (rows, cols)) {
+            ((1, 1), (2..=usize::MAX, 1)) | 
+            ((1, 2..=usize::MAX), _) => {
                 let mut data = vec![];
                 for _ in 0..rows {
                     data.extend(self.data().iter());
                 }
                 data
             },
-            (_, 1) => {
+            ((1, 1), (1, 2..=usize::MAX)) |
+            ((2..=usize::MAX, 1), _) => {
                 let mut data = vec![0.; rows * cols];
                 for i in 0..rows {
                     for j in 0..cols {
@@ -330,17 +359,74 @@ impl Matrix {
                 data
             },
             _ => {
-                self.data().clone()
+                return Err(BroadCastError { 
+                    got_shape: self.shape(), 
+                    expected_shape: (rows, cols) 
+                });
             }
         };
-
-        // (2, 1) => (2, 3)
-        // [4] => [4, 4, 4]
-        // [5]    [5, 5, 5]
         
         let op = Some(Operator::Unary(self.clone(), Broadcast));
 
-        Self(Rc::new(Matrix_::new(data, (rows, cols), op, self.requires_grad())))
+        Ok(Self(Rc::new(Matrix_::new(data, (rows, cols), op, self.requires_grad()))))
+    }
+
+    pub fn sum(&self, axis: usize) -> MatrixResult {
+        
+        let (rows, cols) = self.shape();
+
+        let (data, new_shape) = match axis {
+            0 => {
+                let shape = (rows, 1 as usize);
+
+                let mut data = vec![0.; rows];
+                for i in 0..rows {
+                    for j in 0..cols {
+                        data[i] += self.get(i, j);
+                    }
+                }
+                (data, shape)
+            },
+            1 => {
+                let shape = (1 as usize, cols);
+
+                let mut data = vec![0.; cols];
+                for j in 0..cols {
+                    for i in 0..rows {
+                        data[j] += self.get(i, j);
+                    }
+                }
+                (data, shape)
+            }
+            _ => (self.data().clone(), (rows, cols))
+        };
+        
+        let op = Some(Operator::Unary(self.clone(), Sum));
+
+        Ok(Self(Rc::new(Matrix_::new(data, new_shape, op, self.requires_grad()))))
+    }
+
+    pub fn broadcast_shape(lhs: (usize, usize), rhs: (usize, usize)) -> (usize, usize) {
+        
+        let rhs = match rhs {
+            (1, 1) => lhs,
+            (1, x) => (lhs.0, x),
+            (x, 1) => (x, lhs.1),
+            x => x
+        };
+    
+        let lhs = match lhs {
+            (1, 1) => rhs,
+            (1, x) => (rhs.0, x),
+            (x, 1) => (x, rhs.1),
+            x => x
+        };
+    
+        if rhs == lhs {
+            rhs
+        } else {
+            (0, 0)
+        }
     }
 
 }

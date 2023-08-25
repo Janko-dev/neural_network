@@ -15,7 +15,8 @@ pub enum BinaryOpType {
 pub enum UnaryOpType {
     Transpose,
     Sigmoid,
-    Broadcast
+    Broadcast,
+    Sum
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +47,7 @@ impl Operator {
             Self::Unary(_, UnaryOpType::Sigmoid) => "Sigmoid".to_string(),
             Self::Unary(_, UnaryOpType::Transpose) => "Transpose".to_string(),
             Self::Unary(_, UnaryOpType::Broadcast) => "Broadcast".to_string(),
+            Self::Unary(_, UnaryOpType::Sum) => "Sum".to_string(),
         }
     } 
 }
@@ -201,13 +203,38 @@ impl Matrix {
                     },
                     Operator::Unary(mat, UnaryOpType::Broadcast) => {
                         
+                        // fold grad in the direction of broadcast
+                        // grad: (3, 2)
+                        // mat: (3, 1)
+
+                        // example grad
+                        //  [1.0, 1.0]      [2.0]
+                        //  [2.0, 2.0]  =>  [4.0] 
+                        //  [3.0, 3.0]      [6.0]
+                        //  => [1, 1, 2, 2, 3, 3]
+                        // 
+
+                        // other way around
+                        // grad: (3, 2)
+                        // mat: (1, 2)
+
+                        // example grad
+                        //  [1.0, 1.0]      [6.0, 6.0]
+                        //  [2.0, 2.0]  =>   
+                        //  [3.0, 3.0]    
+
+                        let mat_grad = match mat.shape() {
+                            (_, 1) => grad.sum(0)?,
+                            (1, _) => grad.sum(1)?,
+                            _ => grad.clone()
+                        }; 
+
                         let mat_sum_grad = grads.or_insert(mat);
-                        // grad.print();
-                        // node.print();
-                        // mat.print();
-                        // mat_sum_grad.print();
-                        *mat_sum_grad = mat_sum_grad.add(&grad.broadcast_as(mat.shape()))?;
+                        *mat_sum_grad = mat_sum_grad.add(&mat_grad)?;
                     },
+                    Operator::Unary(mat, UnaryOpType::Sum) => {
+                        todo!()
+                    }
                     Operator::BinaryScalar(lhs, rhs, BinaryScalarOpType::MulScalar) => {
                         let lhs_grad = grad.mul_scalar(*rhs);
                         let lhs_sum_grad = grads.or_insert(lhs);

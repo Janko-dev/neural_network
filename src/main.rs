@@ -1,86 +1,89 @@
 use std::error::Error;
 
 use neural_network::{NN, Matrix};
+use plotlib::{repr::Plot, view::ContinuousView, page::Page, style::LineStyle};
 
-const BATCH_SIZE: usize = 32;
-const EPOCHS: usize = 20;
-
-fn broadcast_shape(lhs: (usize, usize), rhs: (usize, usize)) -> (usize, usize) {
-    
-    // let lhs_bcast = (lhs.0 < rhs.0, lhs.1 < rhs.1);
-    // let rhs_bcast = (rhs.0 < lhs.0, rhs.1 < lhs.1);
-    // (lhs_bcast, rhs_bcast)
-    let rhs = match rhs {
-        (1, x) => (lhs.0, x),
-        (x, 1) => (x, lhs.1),
-        x => x
-    };
-
-    let lhs = match lhs {
-        (1, x) => (rhs.0, x),
-        (x, 1) => (x, rhs.1),
-        x => x
-    };
-
-    if rhs == lhs {
-        rhs
-    } else {
-        (0, 0)
-    }
-}
-
+use std::env;
 fn main() -> Result<(), Box<dyn Error>>{
+    env::set_var("RUST_BACKTRACE", "1");
+    // let x = Matrix::broadcast_shape((1, 4), (1, 1));
+    // println!("{:?}", x);
 
-    // let lhs_shape = (3, 2);
-    // let rhs_shape = (1, 2);
+    // dbg!(Matrix::broadcast_shape((1, 4), (1, 1)));
+    // dbg!(Matrix::broadcast_shape((4, 1), (1, 1)));
+    // dbg!(Matrix::broadcast_shape((1, 1), (1, 4)));
+    // dbg!(Matrix::broadcast_shape((1, 1), (4, 1)));
+
+    // let a = Matrix::from_vec(vec![1., 2., 3., 4.], (1, 4), true);
+    // let b = Matrix::from_vec(vec![2.], (1, 1), true);
+
+    // let c = b.broadcast_as((4, 1))?;
+    // c.print();
+
+    // let a = Matrix::from_vec(vec![1., 2., 3., 4., 5., 6.], (3, 2), true);
+    // let b = Matrix::from_vec(vec![1., 2.], (1, 2), true);
+
+    // let c = b.add(&a)?;
     
-    // let shape = broadcast_shape((3, 2), (1, 2));
-    
-    // dbg!(shape);
-    // let l_broadcast = shape != lhs_shape;
-    // let r_broadcast = shape != rhs_shape;
+    // a.print();
+    // b.print();
+    // c.print();
 
-    // match (l_broadcast, r_broadcast) => {
-    //     (true, true) =>    (lhs.broadcast_as(shape)?, rhs.broadcast_as(shape)?),
-    //     (false, true) =>   (lhs, rhs.broadcast_as(shape)?),
-    //     (true, false) =>   (lhs.broadcast_as(shape)?, rhs),
-    //     (false, false) =>  (lhs, rhs), 
-    // }
-
-    let a = Matrix::from_vec(vec![1., 2., 3., 4., 5., 6.], (3, 2), true);
-    let b = Matrix::from_vec(vec![1., 2., 3.], (3, 1), true);
-
-    let c = b.broadcast_as(a.shape());
-    
-    a.print();
-    b.print();
-    c.print();
-    c.print_comp_tree();
+    // c.print_comp_tree();
 
     // let grads = c.backward()?;
 
+    // println!("-------------------------------");
     // grads.get(b.id()).unwrap().print();
+    // grads.get(a.id()).unwrap().print();
 
-    // let x_train = vec![
-    //     vec![0., 0.],
-    //     vec![0., 1.],
-    //     vec![1., 0.],
-    //     vec![1., 1.],
-    // ];
+    const BATCH_SIZE: usize = 4;
+    const EPOCHS: usize = 300;
 
-    // let y_train = vec![0., 1., 1., 0.];
+    let x_train = vec![
+        vec![0., 0.],
+        vec![0., 1.],
+        vec![1., 0.],
+        vec![1., 1.],
+    ];
 
-    // let mut nn = NN::new(vec![2, 4, 1], 1.5);
+    let y_train = vec![0., 1., 1., 0.];
+
+    let mut nn = NN::new(vec![2, 4, 1], 0.00005);
     
+    // let xs: Matrix = x_train.into();
+    // let ys = nn.forward(xs.t())?;
+
+    // ys.print();
+
     // for _ in 0..EPOCHS {
     //     let loss = nn.train(&x_train, &y_train, BATCH_SIZE)?;
-    //     loss.print();
+    //     println!("loss: {}", loss);
     // }
+    let losses = nn.train(&x_train, &y_train, BATCH_SIZE, EPOCHS)?;
 
-    // nn.forward((&x_train[0]).into())?.print();
-    // nn.forward((&x_train[1]).into())?.print();
-    // nn.forward((&x_train[2]).into())?.print();
-    // nn.forward((&x_train[3]).into())?.print();
+    let p = Plot::new(
+        losses
+            .iter()
+            .enumerate()
+            .map(|(i, x)| (i as f64, *x as f64))
+            .collect::<Vec<(f64, f64)>>())
+        .line_style(
+            LineStyle::new() // uses the default marker
+                .colour("#35C788")
+        );
+    
+    let v = ContinuousView::new()
+        .add(p)
+        .x_label("Epochs")
+        .y_label("Loss");
+
+    Page::single(&v).save("test.svg").unwrap();
+        
+    nn.forward((&x_train[0]).into())?.print();
+    nn.forward((&x_train[1]).into())?.print();
+    nn.forward((&x_train[2]).into())?.print();
+    nn.forward((&x_train[3]).into())?.print();
 
     Ok(())
 }
