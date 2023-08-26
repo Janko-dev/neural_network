@@ -6,6 +6,9 @@ use plotlib::{repr::Plot, view::ContinuousView, page::Page, style::LineStyle};
 use std::env;
 fn main() -> Result<(), Box<dyn Error>>{
     env::set_var("RUST_BACKTRACE", "1");
+
+
+    return Ok(());
     // let x = Matrix::broadcast_shape((1, 4), (1, 1));
     // println!("{:?}", x);
 
@@ -14,8 +17,6 @@ fn main() -> Result<(), Box<dyn Error>>{
     // dbg!(Matrix::broadcast_shape((1, 1), (1, 4)));
     // dbg!(Matrix::broadcast_shape((1, 1), (4, 1)));
 
-    // let a = Matrix::from_vec(vec![1., 2., 3., 4.], (1, 4), true);
-    // let b = Matrix::from_vec(vec![2.], (1, 1), true);
 
     // let c = b.broadcast_as((4, 1))?;
     // c.print();
@@ -33,12 +34,8 @@ fn main() -> Result<(), Box<dyn Error>>{
 
     // let grads = c.backward()?;
 
-    // println!("-------------------------------");
-    // grads.get(b.id()).unwrap().print();
-    // grads.get(a.id()).unwrap().print();
-
-    const BATCH_SIZE: usize = 4;
-    const EPOCHS: usize = 300;
+    const BATCH_SIZE: usize = 1;
+    const EPOCHS: usize = 1000;
 
     let x_train = vec![
         vec![0., 0.],
@@ -49,7 +46,7 @@ fn main() -> Result<(), Box<dyn Error>>{
 
     let y_train = vec![0., 1., 1., 0.];
 
-    let mut nn = NN::new(vec![2, 4, 1], 0.00005);
+    let mut nn = NN::new(vec![2, 4, 1], 4.5);
     
     // let xs: Matrix = x_train.into();
     // let ys = nn.forward(xs.t())?;

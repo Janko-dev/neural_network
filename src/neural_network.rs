@@ -118,16 +118,25 @@ impl NN {
         //     .map(|i| (x_train[i].clone(), y_train[i]))
         //     .unzip();
 
+        let mut counter: usize = 0;
+
         for _ in 0..epochs {
 
-            let bag: Vec<usize> = (0..training_size).collect();
 
-            let (batch_x, batch_y): (Vec<Vec<f32>>, Vec<f32>) = bag
-                .choose_multiple(&mut rng, batch_size)
-                .into_iter()
-                .map(|i| (x_train[*i].clone(), y_train[*i]))
-                .unzip();
-            
+            let (batch_x, batch_y): (Vec<Vec<f32>>, Vec<f32>) = if batch_size == 1 {
+                let x = vec![x_train[counter].clone()];
+                let y = vec![y_train[counter]];
+                counter = (counter+1) % training_size;
+                (x, y)
+            } else {
+                (0..training_size)
+                    .collect::<Vec<usize>>()
+                    .choose_multiple(&mut rng, batch_size)
+                    .into_iter()
+                    .map(|i| (x_train[*i].clone(), y_train[*i]))
+                    .unzip()
+            };
+
             let batch_x: Matrix = batch_x.into();
             let batch_y: Matrix = batch_y.into();
             let ys_pred = self.forward(batch_x.t())?;
@@ -146,6 +155,9 @@ impl NN {
     
             let loss = loss.sum(1)?.get(0, 0);
             history.push(loss/batch_size as f32);
+
+
+            // self.learning_rate *= 0.95;
         }
 
         Ok(history)
