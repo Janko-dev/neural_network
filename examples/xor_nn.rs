@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use neural_network::{NN, Matrix};
+use neural_network::NN;
 use plotlib::{repr::Plot, view::ContinuousView, page::Page, style::LineStyle};
 
 use std::env;
