@@ -58,3 +58,24 @@ impl Display for NNError {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum UtilityError {
+    LabelIndexOutOfBound {
+        y_index: usize,
+        csv_column_len: usize
+    },
+}
+
+impl Error for UtilityError {}
+
+impl Display for UtilityError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UtilityError::LabelIndexOutOfBound { y_index, csv_column_len } => 
+                writeln!(f, "Index out of bounds error: the y_index {} is out of bounds for the CSV column length {}",
+                    y_index, csv_column_len    
+                ),
+        }
+    }
+}

@@ -7,7 +7,7 @@ use std::env;
 
 const BATCH_SIZE: usize = 1;
 const EPOCHS: usize = 1000;
-const SVG_PATH: &'static str = "examples/xor_nn_loss.svg"; 
+const SVG_PATH: &'static str = "examples/xor/xor_nn_loss.svg"; 
 
 fn main() -> Result<(), Box<dyn Error>>{
     env::set_var("RUST_BACKTRACE", "1");

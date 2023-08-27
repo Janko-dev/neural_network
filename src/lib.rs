@@ -6,3 +6,4 @@ mod neural_network;
 pub use matrix::*;
 pub use autodiff::*;
 pub use crate::neural_network::*;
+pub use error::*;
