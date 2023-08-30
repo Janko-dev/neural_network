@@ -34,20 +34,20 @@ fn get_id() -> usize {
 }
 
 #[derive(Debug)]
-struct Matrix_ {
+struct Matrix_<T> {
     id: usize,
-    data: Rc<Vec<f32>>,
-    shape: (usize, usize), // (rows, cols)
+    data: Rc<Vec<T>>,
+    shape: (usize, usize), // (rows, cols), i.e., matrix in row-major form
     with_grad: bool,
     optype: Option<Operator>
 }
 
 #[derive(Debug, Clone)]
-pub struct Matrix(Rc<Matrix_>);
+pub struct Matrix(Rc<Matrix_<f32>>);
 
 type MatrixResult = Result<Matrix, MatrixError>;
 
-impl Matrix_ {
+impl Matrix_<f32> {
     fn randn(
         from: f32, 
         to: f32, 
@@ -70,9 +70,11 @@ impl Matrix_ {
             optype: None 
         }
     }
+}
 
-    fn new(
-        data: Vec<f32>, 
+impl <T> Matrix_<T> {
+    pub fn new(
+        data: Vec<T>, 
         (m, n): (usize, usize), 
         op: Option<Operator>, 
         with_grad: bool
@@ -86,7 +88,6 @@ impl Matrix_ {
             optype: op 
         }
     }
-
 }
 
 macro_rules! binary_operator {
@@ -96,12 +97,8 @@ macro_rules! binary_operator {
 
             let shape = Matrix::broadcast_shape(self.shape(), other.shape());
 
-            // println!("{:?}, {:?} => {:?}", self.shape(), other.shape(), shape);
-
             let l_broadcast = shape != self.shape();
             let r_broadcast = shape != other.shape();
-
-            // println!("{}, {}, {:?}", l_broadcast, r_broadcast, shape);
 
             let (lhs, rhs) = match (l_broadcast, r_broadcast) {
                 (true, true) =>    (self.broadcast_as(shape)?, other.broadcast_as(shape)?),
@@ -109,22 +106,11 @@ macro_rules! binary_operator {
                 (true, false) =>   (self.broadcast_as(shape)?, other.clone()),
                 (false, false) =>  (self.clone(), other.clone()),
             };
-
-            // if self.shape() != other.shape() {
-            //     return Err(ShapeMismatchError{
-            //         a_shape: self.shape(),
-            //         b_shape: other.shape(),
-            //         op: stringify!($name).to_string()
-            //     });
-            // }
     
             let (rows, cols) = shape;
     
             let mut data = vec![0.; rows * cols];
-            // println!("lhs: {:?}", lhs.shape());
-            // lhs.print();
-            // println!("rhs: {:?}", rhs.shape());
-            // rhs.print();
+
             for i in 0..rows {
                 for j in 0..cols {
                     data[i * cols + j] = lhs.get(i, j) $op rhs.get(i, j);
@@ -144,13 +130,11 @@ macro_rules! binary_operator {
 impl Matrix {
 
     pub fn ones(shape: (usize, usize), with_grad: bool) -> Self {
-        let data = vec![1.; shape.0 * shape.1];
-        Self(Rc::new(Matrix_::new(data, shape, None, with_grad)))
+        Matrix::fill(shape, 1., with_grad)
     }
 
     pub fn zeros(shape: (usize, usize), with_grad: bool) -> Self {
-        let data = vec![0.; shape.0 * shape.1];
-        Self(Rc::new(Matrix_::new(data, shape, None, with_grad)))
+        Matrix::fill(shape, 0., with_grad)
     }
 
     pub fn fill(shape: (usize, usize), value: f32, with_grad: bool) -> Self {

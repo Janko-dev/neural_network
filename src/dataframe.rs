@@ -1,15 +1,88 @@
-use std::{error::Error, mem, io::Read, collections::HashMap};
+use std::{error::Error, ops::{IndexMut, Index}};
 
-use csv::Reader;
+#[derive(Debug, PartialEq)]
+pub enum DFType {
+    F32(f32),
+    F64(f64),
+    STR(String)
+}
 
-use crate::error::UtilityError;
-
+#[derive(Debug)]
 pub struct DataFrame {
     headers: Vec<String>,
+    data: Vec<DFType>,
+    shape: (usize, usize)
+}
+
+pub enum EncodingScheme {
+    Label,
+    OneHot
+}
+
+impl DataFrame {
+    pub fn from_csv<S: Into<String>>(file_path: S) -> Result<Self, Box<dyn Error>> {
+        
+        let content = std::fs::read_to_string(file_path.into())?;
+        let mut rdr = csv::Reader::from_reader(content.as_bytes());
+
+        let mut data = vec![];
+        let headers = rdr
+            .headers()?
+            .to_owned()
+            .iter()
+            .map(|x| x.trim().to_string())
+            .collect::<Vec<String>>();
+
+        let cols = headers.len();
+        let mut rows = 0;
+
+        for result in rdr.records() {
+
+            let record = result?;
+            
+            data.extend(record
+                .iter()
+                .map(|x| {
+                    let x = x.trim();
+                    match x.parse::<f32>() {
+                        Ok(n) => DFType::F32(n),
+                        Err(_) => DFType::STR(x.to_string())
+                    }
+                })
+                .collect::<Vec<DFType>>()
+            );
+
+            rows += 1;
+        }
+
+        Ok(Self { headers, data, shape: (rows, cols) })
+    }
+
+    pub fn encode(&mut self, encoding: EncodingScheme) {
+        
+    }
 
 }
 
+#[cfg(test)]
+mod tests {
 
+    use super::*;
+
+    #[test]
+    fn df_csv_test() {
+        let file_path = "examples/iris/test_input.csv";
+        let df = DataFrame::from_csv(file_path);
+
+        assert!(!df.is_err());
+        let df = df.unwrap();
+        assert_eq!(df.headers, vec!["id", "test", "label"]);
+        assert_eq!(df.shape, (3, 3));
+        assert_eq!(df.data[0..3], vec![DFType::F32(1.), DFType::STR("x".to_string()), DFType::F32(1.)]);
+        
+        
+    }
+}
 
 // pub struct LabelEncoding {
 //     counter: usize,
@@ -25,11 +98,6 @@ pub struct DataFrame {
 // z    0 0 1
 
 // type Dataset = (Vec<Vec<f32>>, Vec<f32>);
-
-pub enum EncodingScheme {
-    Label,
-    OneHot
-}
 
 // impl EncodingScheme {
 //     pub fn encode(&self, reader: Reader<&[u8]>, y_index: usize) -> Result<Dataset, Box<dyn Error>> {

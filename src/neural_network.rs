@@ -103,9 +103,9 @@ impl NN {
 
             let batch_x: Matrix = batch_x.into();
             let batch_y: Matrix = batch_y.into();
-            let ys_pred = self.forward(batch_x.t())?;
+            let ys_pred = self.forward(batch_x.t())?.t();
 
-            let loss = ys_pred.t().sub(&batch_y)?.powf(2.);
+            let loss = ys_pred.sub(&batch_y)?.powf(2.);
     
             let grads = loss.backward()?;
     
